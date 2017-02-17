@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+# get the libraries from:
+# https://raw.githubusercontent.com/orangeduck/mpc/master/mpc.c
+# https://raw.githubusercontent.com/orangeduck/mpc/master/mpc.h
+
+compile() {
+  gcc -g -std=c99 -Wall -lreadline -lm "$1" mpc.c -o "$(echo $1 | sed 's/\.c$//')"
+}
+
+SOURCE=repl.c
+origin=$(stat -c %Z $SOURCE)
+while :; do
+  current=$(stat -c %Z $SOURCE)
+  if [[ "$current" != "$origin" ]]; then
+    echo "Compiling..."
+    compile $SOURCE
+    origin=$current
+  fi
+  sleep 1
+done
