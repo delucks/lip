@@ -7,7 +7,7 @@
 #include "mpc.h"
 
 static char* name = "lip";
-static char* version = "0.0.3";
+static char* version = "0.0.4";
 
 /*
  * LIP
@@ -27,7 +27,9 @@ typedef struct lval {
 } lval;
 
 /*
- * Functions that work on lval
+ * Code notes:
+ *   "lval" == "lis?p value". This is used throughout the next section
+ *   Expressions are lvals too, but that's liable to change
  */
 
 lval * lval_num(long input) {
@@ -115,25 +117,106 @@ void lval_print(lval *input) {
   putchar('\n');
 }
 
-//lval * e_operator(lval x, char *operator, lval y) {
-//  if (x.type == LVAL_ERR) { return x; }
-//  if (y.type == LVAL_ERR) { return y; }
-//  if (strcmp(operator, "+") == 0) {
-//    return lval_num(x.num + y.num);
-//  } else if (strcmp(operator, "-") == 0) {
-//    return lval_num(x.num - y.num);
-//  } else if (strcmp(operator, "*") == 0) {
-//    return lval_num(x.num * y.num);
-//  } else if (strcmp(operator, "/") == 0) {
-//    return y.num == 0 ? lval_err("Tried to divide by 0") : lval_num(x.num / y.num);
-//  } else if (strcmp(operator, "%") == 0) {
-//    return lval_num(x.num % y.num);
-//  } else if (strcmp(operator, "^") == 0) {
-//    return lval_num(powl(x.num, y.num));
-//  } else {
-//    return lval_err("Bad operator");
-//  }
-//}
+// Predeclare for...
+lval * evaluate_sexpr(lval *input);
+
+lval * evaluate_lval(lval *input) {
+  if (input->type == LVAL_SEXPR) {
+    return evaluate_sexpr(input);
+  } else {
+    return input;
+  }
+}
+
+lval * lval_pop(lval *input, int i) {
+  if (i >= input->count) {
+    return lval_err("Attempted to pop beyond the bounds of a lval's cell space");
+  }
+  lval *x = input->cell[i];
+  // Move everything forward one spot
+  memmove(&input->cell[i], &input->cell[i+1], sizeof(lval*) * (input->count-i-1));
+  input->count--;
+  input->cell = realloc(input->cell, sizeof(lval*) * input->count);
+  return x;
+}
+
+lval * evaluate_builtin(lval *x, char *operator) {
+  for (int i=0; i<x->count; i++) {
+    if (x->cell[i]->type != LVAL_NUM) {
+      lval_free(x);
+      return lval_err("Non-number passed as argument to a function that takes numbers");
+    }
+  }
+  lval *first = lval_pop(x, 0);
+  // Unary negation
+  if (x->count == 0) {
+    if (strcmp(operator, "-") == 0) {
+      first->num = -first->num;
+    } // else if (strcmp(operator, "+") == 0) {
+  }
+  // Do the number dance
+  while (x->count > 0) {
+    lval *next = lval_pop(x, 0);
+    if (strcmp(operator, "+") == 0) {
+      first->num += next->num;
+    } else if (strcmp(operator, "-") == 0) {
+      first->num -= next->num;
+    } else if (strcmp(operator, "*") == 0) {
+      first->num *= next->num;
+    } else if (strcmp(operator, "^") == 0) {
+      first->num = powl(first-> num, next->num);
+    } else if (strcmp(operator, "%") == 0) {
+      first->num %= next->num;
+    } else if (strcmp(operator, "/") == 0) {
+      if (next->num == 0) {
+        lval_free(first);
+        lval_free(next);
+        first = lval_err("Cannot divide by zero fool");
+        break;
+      }
+      first->num /= next->num;
+    }
+    lval_free(next);
+  }
+  lval_free(x);
+  return first;
+}
+
+lval * lval_take(lval *input, int i) {
+  lval *x = lval_pop(input, i);
+  lval_free(input);
+  return x;
+}
+
+lval * evaluate_sexpr(lval *input) {
+  // Recursively evaluate each cell
+  for (int i=0; i<input->count; i++) {
+    input->cell[i] = evaluate_lval(input->cell[i]);
+  }
+  // If there are errors, surface them
+  for (int i=0; i<input->count; i++) {
+    if (input->cell[i]->type == LVAL_ERR) {
+      return lval_take(input, i);
+    }
+  }
+  // Return singletons inside or outside expressions
+  if (input->count == 0) {
+    return input;
+  } else if (input->count == 1) {
+    return lval_take(input, 0);
+  }
+  lval *front = lval_pop(input, 0);
+  if (front->type != LVAL_SYM) {
+    lval_free(front);
+    lval_free(input);
+    return lval_err("A symbol must start an s-expression");
+  }
+  // Call arithmetic expression
+  lval *result = evaluate_builtin(input, front->sym);
+  lval_free(front);
+  return result;
+}
+
 
 lval * lval_expand(lval *o, lval *new) {
   o->count++;
@@ -205,7 +288,7 @@ int main(int argc, char **argv) {
     mpc_result_t r;
     if (mpc_parse("<stdin>", input, Lip, &r)) {
       //mpc_ast_print(r.output);
-      lval *result = ast_parse_node(r.output);
+      lval *result = evaluate_lval(ast_parse_node(r.output));
       if (result != NULL) {
         lval_print(result);
         lval_free(result);

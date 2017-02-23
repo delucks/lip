@@ -13,7 +13,7 @@ origin=$(stat -c %Z $SOURCE)
 while :; do
   current=$(stat -c %Z $SOURCE)
   if [[ "$current" != "$origin" ]]; then
-    echo "Compiling..."
+    echo "Compiling... at $(date +%s)"
     compile $SOURCE
     origin=$current
   fi
